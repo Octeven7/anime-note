@@ -1,0 +1,52 @@
+{
+  "name": "anime-note",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "tsc -b && vite build",
+    "test": "vitest run && node --test server/*.test.mjs",
+    "check:local": "node scripts/check-local.mjs",
+    "dev:api": "node --env-file-if-exists=.env server/index.mjs",
+    "test:api": "node --test server/*.test.mjs",
+    "import:subject": "node --env-file-if-exists=.env server/import.mjs subject",
+    "import:archive": "node --env-file-if-exists=.env server/import.mjs archive",
+    "catalog:repair": "node --env-file-if-exists=.env server/catalog-sync-cli.mjs repair",
+    "sync:tags": "node --env-file-if-exists=.env server/catalog-sync-cli.mjs tag",
+    "sync:metadata": "node --env-file-if-exists=.env server/catalog-sync-cli.mjs metadata",
+    "test:ui": "vitest run",
+    "verify:db": "node --env-file-if-exists=.env server/verify.mjs",
+    "backup:personal": "node --env-file-if-exists=.env server/personal-cli.mjs export",
+    "restore:personal": "node --env-file-if-exists=.env server/personal-cli.mjs restore",
+    "format": "prettier --write src server scripts README.md index.html *.json *.ts *.js",
+    "check:contrast": "node scripts/check-contrast.mjs"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^9.0.3",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.0",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "prettier": "^3.10.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.5"
+  }
+}

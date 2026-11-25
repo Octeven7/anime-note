@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+.pnpm-store/
+preview.*.log
+preview.pid
+api.pid
+api.*.log
+data/
+.env
+.local/
+
+# Local benchmark tools and outputs
+/artifacts/
+/POSTER-BENCHMARK.md
+/poster-benchmark*.cmd
+/scripts/poster-benchmark*
+/scripts/seed-e2e.mjs

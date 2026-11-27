@@ -39,7 +39,6 @@ export interface Subject {
   score_exact?: number | null;
   rating_distribution?: Record<string, number> | null;
   rating_updated_at?: string | null;
-  rating_refresh_pending?: boolean;
   rank: number | null;
   image_url: string | null;
   nsfw: number;
@@ -51,6 +50,7 @@ export interface Subject {
   myScore?: number | null;
   source?: { name: string; url: string; fetchedAt: string; detailComplete: boolean };
   infobox?: { key: string; value: string | { v: string; k?: string }[] }[];
+  totalEpisodes?: number | null;
   episodes?: Episode[];
   characters?: {
     id: string;
@@ -83,18 +83,6 @@ export interface Note {
     | null;
 }
 export interface Page<T> {
-  ratingSync?: { pending: boolean };
-  tagSync?: {
-    pending: boolean;
-    states: {
-      tag: string;
-      pending: boolean;
-      error?: string;
-      matched?: number;
-      received?: number;
-      total?: number;
-    }[];
-  };
   items: T[];
   total: number;
   page: number;
@@ -134,6 +122,7 @@ export interface CalendarItem {
   time: string | null;
   collection: string | null;
   latestEpisode: Episode | null;
+  totalEpisodes?: number | null;
   watched: boolean;
   feeling: Feeling | null;
 }
@@ -146,4 +135,13 @@ export interface CalendarData {
   sourceTimeZone: string;
   notice: string;
   items: CalendarItem[];
+  otherReleases: {
+    id: string;
+    bangumiId: number;
+    title: string;
+    image: string | null;
+    date: string;
+    kind: 'movie' | 'batch' | 'batchPart' | 'resumption';
+    episodes: number | null;
+  }[];
 }

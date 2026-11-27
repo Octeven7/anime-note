@@ -15,6 +15,23 @@ const raw = (id = 1) => ({
   infobox: [{ key: '别名', value: [{ v: 'Frieren' }] }],
   tags: [{ name: '奇幻' }, { name: '冒险' }],
 });
+test('详情优先使用明确总话数，未知值回退到归档，不以章节条数推算', () => {
+  const db = openDatabase(':memory:');
+  try {
+    const id = upsertSubject(db, { ...raw(), infobox: [{ key: '话数', value: '*' }] });
+    assert.equal(getSubject(db, id).totalEpisodes, null);
+    db.prepare('INSERT INTO archive_infoboxes VALUES (?,?)').run(
+      id,
+      JSON.stringify([{ key: '话数', value: '12' }]),
+    );
+    assert.equal(getSubject(db, id).totalEpisodes, 12);
+    upsertSubject(db, { ...raw(), infobox: [{ key: '话数', value: '13 话' }] });
+    assert.equal(getSubject(db, id).totalEpisodes, 13);
+    assert.equal(getSubject(db, id).episodes.length, 0);
+  } finally {
+    db.close();
+  }
+});
 const search = (db, query) => {
   const params = new URLSearchParams(query);
   if (!params.has('minVotes')) params.set('minVotes', '0');
@@ -50,7 +67,7 @@ test('数据库迁移可重复打开，存储能在服务重启后恢复', () =>
     db.close();
     db = openDatabase(join(dir, 'test.sqlite'));
     assert.equal(getSubject(db, id).name_cn, '葬送的芙莉莲');
-    assert.equal(db.prepare('SELECT count(*) n FROM schema_migrations').get().n, 10);
+    assert.equal(db.prepare('SELECT count(*) n FROM schema_migrations').get().n, 12);
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

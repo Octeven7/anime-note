@@ -29,6 +29,55 @@ const mapFeel: Record<string, string> = {
   好看: 'good',
   神回: 'masterpiece',
 };
+const legacyEpisode = (value: unknown) => typeof value === 'string' && /^frieren-\d+$/.test(value);
+const validLegacyEntry = (value: LegacyNote | LegacyLibrary['reviews'][number] | null) =>
+  value &&
+  typeof value.id === 'string' &&
+  typeof value.body === 'string' &&
+  value.subjectId === 'demo-frieren' &&
+  typeof value.updatedAt === 'string' &&
+  Number.isFinite(Date.parse(value.updatedAt));
+
+export function validateLegacyFile(value: unknown) {
+  const data = value as
+    (LegacyLibrary & { legacyDrafts?: { key: string; value: LegacyNote }[] }) | null;
+  if (
+    !data ||
+    !Array.isArray(data.notes) ||
+    !Array.isArray(data.reviews) ||
+    !Array.isArray(data.watched) ||
+    typeof data.collected !== 'boolean'
+  ) {
+    throw new Error('不是本站备份或可识别的旧版手账文件。');
+  }
+  const validNote = (note: LegacyNote) =>
+    validLegacyEntry(note) &&
+    legacyEpisode(note.episodeId) &&
+    (!note.feeling || Object.hasOwn(mapFeel, note.feeling)) &&
+    (note.scenes === undefined ||
+      (Array.isArray(note.scenes) &&
+        note.scenes.every(
+          (scene) => scene && typeof scene.time === 'string' && typeof scene.text === 'string',
+        )));
+  if (
+    !data.notes.every(validNote) ||
+    !data.watched.every(legacyEpisode) ||
+    !data.reviews.every(
+      (review) =>
+        validLegacyEntry(review) &&
+        (review.score === null ||
+          (Number.isInteger(review.score) && review.score >= 1 && review.score <= 10)),
+    ) ||
+    (data.legacyDrafts !== undefined &&
+      (!Array.isArray(data.legacyDrafts) ||
+        !data.legacyDrafts.every(
+          (draft) => draft && typeof draft.key === 'string' && validNote(draft.value),
+        )))
+  ) {
+    throw new Error('旧版手账的记录、评分或章节格式有误。');
+  }
+  return data;
+}
 async function stableId(prefix: string, value: string) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return `${prefix}_${Array.from(new Uint8Array(bytes))

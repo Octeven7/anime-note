@@ -1,10 +1,17 @@
 import { openDatabase } from './database.mjs';
 import { BangumiClient } from './bangumi.mjs';
 import { createApp } from './app.mjs';
+import { configureNetworkProxy } from './network-proxy.mjs';
 const port = Number(process.env.API_PORT || 3001);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid API_PORT');
+configureNetworkProxy();
 const db = openDatabase();
-const server = createApp({ db, client: new BangumiClient(), port });
+const server = createApp({
+  db,
+  client: new BangumiClient(),
+  port,
+  backupDirectory: process.env.PERSONAL_BACKUP_DIR,
+});
 server.on('error', (error) => {
   console.error(`API startup failed: ${error.message}`);
   db.close();

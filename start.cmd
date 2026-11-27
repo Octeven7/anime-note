@@ -60,7 +60,7 @@ if not exist "node_modules\vite" (
   pause
   exit /b 1
 )
-"%PAPER_SCREEN_NODE_FOUND%" scripts/dev.mjs --open
+"%PAPER_SCREEN_NODE_FOUND%" scripts/windows-launcher.mjs start
 set "PAPER_SCREEN_EXIT=%ERRORLEVEL%"
 if not "%PAPER_SCREEN_EXIT%"=="0" pause
 exit /b %PAPER_SCREEN_EXIT%

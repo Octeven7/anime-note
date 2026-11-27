@@ -355,6 +355,23 @@ export function listNotes(db, p) {
   }
   const where = clauses.join(' AND '),
     join = 'notes n JOIN note_drafts d ON d.note_id=n.id';
+  if (p.get('view') === 'subjects') {
+    const total = db
+      .prepare(`SELECT count(DISTINCT n.subject_id) n FROM ${join} WHERE ${where}`)
+      .get(...args).n;
+    const items = db
+      .prepare(
+        `SELECT s.id,s.bangumi_id,s.name,s.name_cn,s.image_url,
+        count(*) AS noteCount,max(n.updated_at) AS latestNoteAt
+       FROM ${join} JOIN subjects s ON s.id=n.subject_id
+       WHERE ${where}
+       GROUP BY s.id
+       ORDER BY latestNoteAt DESC,s.id
+       LIMIT ? OFFSET ?`,
+      )
+      .all(...args, limit, (page - 1) * limit);
+    return { items, total, page, limit };
+  }
   const total = db.prepare(`SELECT count(*) n FROM ${join} WHERE ${where}`).get(...args).n;
   const items = db
     .prepare(
@@ -466,11 +483,11 @@ export function setEpisode(db, subjectId, episodeId, input) {
   episode(db, subjectId, episodeId);
   if (typeof input.watched !== 'boolean') throw new InputError('watched 必须是布尔值');
   return transaction(db, () => {
-    markEpisodes(db, subjectId, episodeId, input.watched);
+    markEpisodes(db, subjectId, episodeId, input.watched, { manual: true });
     return progress(db, subjectId);
   });
 }
-function markEpisodes(db, subjectId, episodeId, watched) {
+function markEpisodes(db, subjectId, episodeId, watched, { manual = false } = {}) {
   const target = db.prepare('SELECT type,sort FROM episodes WHERE id=?').get(episodeId);
   // Numbering is independent for the main story, specials, OP/ED, etc.
   const targets = watched
@@ -484,10 +501,13 @@ function markEpisodes(db, subjectId, episodeId, watched) {
   const update = db.prepare(
     'INSERT INTO episode_progress VALUES(?,?,?,?,?) ON CONFLICT(user_id,episode_id) DO UPDATE SET watched=excluded.watched,updated_at=excluded.updated_at',
   );
+  const lookup = db.prepare(
+    'SELECT watched FROM episode_progress WHERE user_id=? AND episode_id=?',
+  );
   for (const ep of targets) {
-    const previous = db
-      .prepare('SELECT watched FROM episode_progress WHERE user_id=? AND episode_id=?')
-      .get(ACTOR, ep.id);
+    const previous = lookup.get(ACTOR, ep.id);
+    if (watched && previous?.watched === 0 && !(manual && ep.id === episodeId)) continue;
+    if (previous?.watched === Number(watched)) continue;
     update.run(ACTOR, subjectId, ep.id, watched ? 1 : 0, t);
     if (watched && !previous?.watched)
       db.prepare('INSERT INTO watch_events VALUES(?,?,?,?,?)').run(

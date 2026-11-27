@@ -8,6 +8,7 @@ import { UpstreamError } from './bangumi.mjs';
 test('HTTP搜索、缓存、上游失败回退及写入来源校验', async () => {
   const db = openDatabase(':memory:');
   let calls = 0;
+  let backgroundCalls = 0;
   const bundle = {
     subject: {
       id: 1,
@@ -15,6 +16,7 @@ test('HTTP搜索、缓存、上游失败回退及写入来源校验', async () =
       name: '真实来源测试',
       name_cn: '测试动画',
       date: '2023-01-01',
+      tags: [{ name: '奇幻' }],
       rating: { score: 8, total: 100 },
     },
     episodes: [],
@@ -24,6 +26,12 @@ test('HTTP搜索、缓存、上游失败回退及写入来源校验', async () =
   const server = createApp({
     db,
     client: {
+      request: async () => {
+        backgroundCalls++;
+      },
+      searchTag: async () => {
+        backgroundCalls++;
+      },
       subjectBundle: async () => {
         calls++;
         if (calls > 1) throw new UpstreamError('断网');
@@ -54,6 +62,11 @@ test('HTTP搜索、缓存、上游失败回退及写入来源校验', async () =
     );
     assert.equal((await (await fetch(base + '/api/catalog?q=测试')).json()).total, 1);
     assert.equal((await fetch(base + `/api/catalog/${result.item.id}`)).status, 200);
+    assert.equal(
+      (await (await fetch(base + '/api/catalog?tag=%E5%A5%87%E5%B9%BB')).json()).total,
+      1,
+    );
+    assert.equal(backgroundCalls, 0);
     assert.equal(
       (await post('/api/integrations/bangumi/subjects/1', {}, { Origin: 'https://evil.example' }))
         .status,

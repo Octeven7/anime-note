@@ -20,11 +20,13 @@ export function NoteCard({
   onEdit,
   onChanged,
   onDeleted,
+  hideTitle = false,
 }: {
   note: Note;
   onEdit: (n: Note) => void;
   onChanged: () => void;
   onDeleted?: () => void;
+  hideTitle?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState(''),
@@ -72,28 +74,14 @@ export function NoteCard({
   };
   const dirty =
     note.published &&
-    (note.draft.body !== note.published.body ||
+    ((note.draft.title ?? '') !== (note.published.title ?? '') ||
+      note.draft.body !== note.published.body ||
       note.draft.feeling !== note.published.feeling ||
       JSON.stringify(note.draft.scenes) !== JSON.stringify(note.published.scenes) ||
       note.draft.isPublic !== note.published.isPublic);
   return (
     <article className="history-item note-card">
-      <h3 className="font-editorial text-xl mb-3">{noteTitle(note)}</h3>
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-        <a href={`#/subject/${note.subjectId}`} className="note-subject">
-          {note.subjectTitle}
-        </a>
-        <span>{note.scope === 'overall' ? '整体感想' : `第 ${note.episode?.sort ?? '?'} 话`}</span>
-        <Feel value={note.draft.feeling} />
-        <span>{note.published?.isPublic ? '已公开' : note.published ? '私密记录' : '草稿'}</span>
-        {dirty && <span className="text-brand">有未发布修改</span>}
-        <time>{formatDate(note.updatedAt)}</time>
-      </div>
-      {note.published?.score !== null && note.published?.score !== undefined && (
-        <p className="text-sm mt-3">
-          整体评分 <strong className="font-mono">{note.published.score} / 10</strong>
-        </p>
-      )}
+      {!hideTitle && <h3 className="font-editorial text-xl mb-3">{noteTitle(note)}</h3>}
       <NoteBody
         body={
           note.draft.body ||
@@ -110,6 +98,27 @@ export function NoteCard({
           {s.text}
         </p>
       ))}
+      <div className="note-metadata flex flex-wrap items-center gap-2 text-sm text-muted">
+        <a href={`#/subject/${note.subjectId}`} className="note-subject">
+          {note.subjectTitle}
+        </a>
+        <span>{note.scope === 'overall' ? '整体感想' : `第 ${note.episode?.sort ?? '?'} 话`}</span>
+        <Feel value={note.draft.feeling} />
+        {note.published?.score !== null && note.published?.score !== undefined && (
+          <span>
+            整体评分 <strong className="font-mono">{note.published.score} / 10</strong>
+          </span>
+        )}
+        <span>
+          {dirty || !note.published
+            ? '草稿'
+            : note.published.isPublic
+              ? '已发表到本机感想区'
+              : '私密记录'}
+        </span>
+        {dirty && <span className="text-brand">有未发布修改</span>}
+        <time>{formatDate(note.updatedAt)}</time>
+      </div>
       <div className="note-actions">
         <Button variant="ghost" onClick={() => onEdit(note)}>
           <Pencil size={14} />

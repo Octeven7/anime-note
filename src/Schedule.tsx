@@ -6,6 +6,14 @@ import { Poster, Feel, Empty, ErrorNotice, Skeleton } from './components/common'
 import { Button } from './components/ui/button';
 import type { CalendarData, CalendarItem } from './types';
 const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const scheduleTabs = [...days, '其他放送'];
+const otherTab = days.length;
+const releaseLabels = {
+  movie: '剧场版',
+  batch: '集中上线',
+  batchPart: '分批上线',
+  resumption: '分段复播',
+};
 export default function Schedule({
   revision,
   onChanged,
@@ -24,7 +32,7 @@ export default function Schedule({
     new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'short' }).format(date),
   );
   const [selected, setSelected] = useState(today);
-  useEffect(() => setSelected(today), [today]);
+  useEffect(() => setSelected((previous) => (previous === otherTab ? previous : today)), [today]);
   const params = new URLSearchParams({
     year: String(year),
     quarter: String(quarter),
@@ -36,6 +44,12 @@ export default function Schedule({
   const slots =
     remote.data?.items.map((item) => ({ ...item, ...slotInZone(item.weekday, item.time, zone) })) ||
     [];
+  const releasesBySubject = new Map<string, CalendarData['otherReleases']>();
+  for (const release of remote.data?.otherReleases || []) {
+    const releases = releasesBySubject.get(release.id);
+    if (releases) releases.push(release);
+    else releasesBySubject.set(release.id, [release]);
+  }
   async function mark(item: CalendarItem) {
     if (!item.latestEpisode) return;
     setBusy(item.id);
@@ -127,13 +141,15 @@ export default function Schedule({
         </Button>
       </div>
       <p className="schedule-notice">
-        {remote.data?.notice || '正在读取放送资料……'} 未提供时刻的条目保留日本播出星期。
+        {selected === otherTab
+          ? '本季集中上线、分批上线、分段复播及上映的作品。'
+          : `${remote.data?.notice || '正在读取放送资料……'} 未提供时刻的条目保留日本播出星期。`}
         {remote.data?.fetchedAt && ` 数据获取：${formatDate(remote.data.fetchedAt)}`}
       </p>
       {remote.data?.warning && <ErrorNotice message={remote.data.warning} />}
       {error && <ErrorNotice message={error} />}
-      <div className="day-tabs" role="tablist" aria-label="选择放送星期">
-        {days.map((d, i) => (
+      <div className="day-tabs" role="tablist" aria-label="选择放送分类">
+        {scheduleTabs.map((d, i) => (
           <button
             role="tab"
             id={`weekday-${i}`}
@@ -147,13 +163,13 @@ export default function Schedule({
             onKeyDown={(event) => {
               const next =
                 event.key === 'ArrowRight'
-                  ? (i + 1) % 7
+                  ? (i + 1) % scheduleTabs.length
                   : event.key === 'ArrowLeft'
-                    ? (i + 6) % 7
+                    ? (i + scheduleTabs.length - 1) % scheduleTabs.length
                     : event.key === 'Home'
                       ? 0
                       : event.key === 'End'
-                        ? 6
+                        ? scheduleTabs.length - 1
                         : null;
               if (next !== null) {
                 event.preventDefault();
@@ -172,6 +188,50 @@ export default function Schedule({
         <ErrorNotice message={remote.error} retry={remote.reload} />
       ) : remote.loading ? (
         <Skeleton />
+      ) : selected === otherTab ? (
+        <section
+          id="schedule-day"
+          role="tabpanel"
+          aria-labelledby={`weekday-${otherTab}`}
+          className={`schedule-day-layout season-${quarter}`}
+        >
+          {releasesBySubject.size ? (
+            <div className="day-items">
+              {[...releasesBySubject.values()].map((releases) => {
+                const [item] = releases;
+                const lastDate = releases[releases.length - 1].date;
+                const kinds = [...new Set(releases.map(({ kind }) => releaseLabels[kind]))];
+                return (
+                  <article className="airing-card" key={item.id}>
+                    <a href={`#/subject/${item.id}`} className="airing-poster">
+                      <Poster url={item.image} bangumiId={item.bangumiId} title={item.title} />
+                    </a>
+                    <div className="airing-info">
+                      <h3>
+                        <a href={`#/subject/${item.id}`}>{item.title}</a>
+                      </h3>
+                      <p>
+                        {kinds.join('、')}
+                        {item.kind === 'batch' && item.episodes && ` · ${item.episodes} 话`}
+                      </p>
+                      <p>
+                        <time dateTime={item.date}>{item.date}</time>
+                        {lastDate !== item.date && (
+                          <>
+                            {' '}
+                            至 <time dateTime={lastDate}>{lastDate}</time>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <Empty title={only ? '本季暂无在追的其他放送' : '本季暂无其他放送'} />
+          )}
+        </section>
       ) : !slots.length ? (
         <Empty
           title={only ? '本季暂无正在追的番剧' : '本季暂无数据'}
@@ -217,9 +277,10 @@ export default function Schedule({
                             </h3>
                             <p>
                               {item.latestEpisode
-                                ? `已收录至第 ${item.latestEpisode.sort} 话`
-                                : '最新集数待获取'}
+                                ? `最近有播出日期的章节 · 第 ${item.latestEpisode.sort} 话（${item.latestEpisode.air_date}）`
+                                : '暂无带播出日期的正篇章节'}
                             </p>
+                            {item.totalEpisodes && <p>全季共 {item.totalEpisodes} 话</p>}
                             <div className="flex flex-wrap items-center gap-2">
                               {item.latestEpisode ? (
                                 <button

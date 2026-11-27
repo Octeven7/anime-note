@@ -89,7 +89,23 @@ export function openDatabase(
     );
     version = 10;
   }
-  if (version !== 10) {
+  if (version === 10) {
+    transaction(db, () =>
+      db.exec(
+        readFileSync(new URL('./migrations/011_archive_details.sql', import.meta.url), 'utf8'),
+      ),
+    );
+    version = 11;
+  }
+  if (version === 11) {
+    transaction(db, () =>
+      db.exec(
+        readFileSync(new URL('./migrations/012_episode_release_dates.sql', import.meta.url), 'utf8'),
+      ),
+    );
+    version = 12;
+  }
+  if (version !== 12) {
     db.close();
     throw new Error(`Unsupported database version: ${version}`);
   }

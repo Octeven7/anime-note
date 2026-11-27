@@ -12,10 +12,8 @@ export function normalize(value) {
 const text = (value) => (typeof value === 'string' ? value : '');
 const finite = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const day = (value) => (/^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : null);
-export function normalizeSubject(raw) {
-  if (!Number.isSafeInteger(raw.id) || raw.id < 1 || raw.type !== 2 || !text(raw.name))
-    throw new Error('Expected an animation subject with a positive Bangumi ID and name');
-  const aliases = (Array.isArray(raw.infobox) ? raw.infobox : [])
+const aliasesFrom = (infobox) =>
+  (Array.isArray(infobox) ? infobox : [])
     .filter((i) => ['别名', '中文名'].includes(i.key))
     .flatMap((i) =>
       typeof i.value === 'string'
@@ -25,6 +23,9 @@ export function normalizeSubject(raw) {
           : [],
     )
     .filter((v) => typeof v === 'string');
+export function normalizeSubject(raw) {
+  if (!Number.isSafeInteger(raw.id) || raw.id < 1 || raw.type !== 2 || !text(raw.name))
+    throw new Error('Expected an animation subject with a positive Bangumi ID and name');
   const tags = [
     ...new Set(
       [
@@ -50,7 +51,7 @@ export function normalizeSubject(raw) {
     rank: finite(raw.rating?.rank ?? raw.rank),
     nsfw: raw.nsfw ? 1 : 0,
     image: raw.images?.common || raw.images?.large || null,
-    aliases,
+    aliases: aliasesFrom(raw.infobox),
     tags,
   };
 }
@@ -79,6 +80,10 @@ export function upsertSubject(
       .prepare('SELECT name FROM subject_aliases WHERE subject_id=?')
       .all(id)
       .map((a) => a.name);
+  else if (old) {
+    const archive = db.prepare('SELECT fields FROM archive_infoboxes WHERE subject_id=?').get(id);
+    if (archive) s.aliases.push(...aliasesFrom(JSON.parse(archive.fields)));
+  }
   const searchText = normalize([s.name, s.nameCn, ...s.aliases, ...s.tags].join(' '));
   db.prepare(
     `INSERT INTO subjects VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(bangumi_id) DO UPDATE SET
@@ -147,16 +152,31 @@ export function upsertSubject(
   return id;
 }
 
-export function storeBundle(db, bundle) {
+export function storeBundle(db, bundle, { sections = null } = {}) {
   return transaction(db, () => {
-    const id = upsertSubject(db, bundle.subject, { detailComplete: true });
-    const fetchedAt = db
-      .prepare('SELECT fetched_at FROM source_records WHERE subject_id=?')
-      .get(id).fetched_at;
-    db.prepare(
-      'INSERT INTO subject_metadata_sync VALUES(?,?,?,NULL,?) ON CONFLICT(subject_id) DO UPDATE SET fetched_at=excluded.fetched_at,last_attempt_at=excluded.last_attempt_at,last_error=NULL,payload=excluded.payload',
-    ).run(id, fetchedAt, fetchedAt, null);
-    for (const ep of bundle.episodes) {
+    const id = sections
+      ? db.prepare('SELECT id FROM subjects WHERE bangumi_id=?').get(bundle.subject.id)?.id
+      : upsertSubject(db, bundle.subject, { detailComplete: true });
+    if (!id) throw new InputError('本地资料库中没有该作品');
+    if (sections?.includes('ratings'))
+      if (!storeRatings(db, id, bundle.subject, new Date().toISOString(), 'api'))
+        throw new InputError('评分分布数据不完整');
+    if (!sections) {
+      const fetchedAt = db
+        .prepare('SELECT fetched_at FROM source_records WHERE subject_id=?')
+        .get(id).fetched_at;
+      db.prepare(
+        'INSERT INTO subject_metadata_sync VALUES(?,?,?,NULL,?) ON CONFLICT(subject_id) DO UPDATE SET fetched_at=excluded.fetched_at,last_attempt_at=excluded.last_attempt_at,last_error=NULL,payload=excluded.payload',
+      ).run(id, fetchedAt, fetchedAt, null);
+    }
+    for (const ep of sections && !sections.includes('episodes') ? [] : bundle.episodes) {
+      if (
+        !Number.isSafeInteger(ep.id) ||
+        ep.id < 1 ||
+        !Number.isFinite(ep.sort) ||
+        !Number.isInteger(ep.type)
+      )
+        throw new InputError('章节资料格式异常');
       db.prepare(
         `INSERT INTO episodes VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(bangumi_id) DO UPDATE SET sort=excluded.sort,type=excluded.type,name=excluded.name,name_cn=excluded.name_cn,air_date=excluded.air_date,payload=excluded.payload`,
       ).run(
@@ -171,9 +191,12 @@ export function storeBundle(db, bundle) {
         '{}',
       );
     }
-    db.prepare('DELETE FROM subject_characters WHERE subject_id=?').run(id);
-    db.prepare('DELETE FROM subject_staff WHERE subject_id=?').run(id);
-    db.prepare('DELETE FROM character_voices WHERE subject_id=?').run(id);
+    if (!sections || sections.includes('characters')) {
+      db.prepare('DELETE FROM subject_characters WHERE subject_id=?').run(id);
+      db.prepare('DELETE FROM character_voices WHERE subject_id=?').run(id);
+    }
+    if (!sections || sections.includes('staff'))
+      db.prepare('DELETE FROM subject_staff WHERE subject_id=?').run(id);
     const putPerson = (p) => {
       const pid = `bgm-person-${p.id}`;
       db.prepare(
@@ -181,7 +204,7 @@ export function storeBundle(db, bundle) {
       ).run(pid, p.id, p.name, '{}');
       return pid;
     };
-    for (const c of bundle.characters) {
+    for (const c of sections && !sections.includes('characters') ? [] : bundle.characters) {
       const cid = `bgm-character-${c.id}`;
       db.prepare(
         'INSERT INTO characters VALUES(?,?,?,?) ON CONFLICT(bangumi_id) DO UPDATE SET name=excluded.name,payload=excluded.payload',
@@ -198,7 +221,9 @@ export function storeBundle(db, bundle) {
           putPerson(actor),
         );
     }
-    for (const p of bundle.persons.filter((p) => keyStaff.has(p.relation)))
+    for (const p of (sections && !sections.includes('staff') ? [] : bundle.persons).filter((p) =>
+      keyStaff.has(p.relation),
+    ))
       db.prepare('INSERT OR IGNORE INTO subject_staff VALUES(?,?,?)').run(
         id,
         putPerson(p),
@@ -264,7 +289,7 @@ export function searchCatalog(db, params) {
     quarter = number('quarter', 1, 4, null),
     minScore = number('minScore', 0, 10, null),
     maxScore = number('maxScore', 0, 10, null),
-    minVotes = number('minVotes', 0, 1e9, 100);
+    minVotes = number('minVotes', 0, 1e9, q ? null : 100);
   const page = number('page', 1, 100000, 1),
     limit = number('limit', 1, 100, 20);
   if ([year, quarter, page, limit, minVotes].some((n) => n !== null && !Number.isInteger(n)))
@@ -316,7 +341,7 @@ export function searchCatalog(db, params) {
     clauses.push('s.score<=?');
     args.push(maxScore);
   }
-  if (minVotes !== null) {
+  if (minVotes > 0) {
     clauses.push('s.rating_count>=?');
     args.push(minVotes);
   }
@@ -372,6 +397,19 @@ export function serialize(db, s) {
       .map((t) => t.name),
   };
 }
+export function declaredEpisodeCount(...infoboxes) {
+  for (const fields of infoboxes) {
+    if (!Array.isArray(fields)) continue;
+    for (const { key, value } of fields) {
+      if (!['话数', '集数', '总集数'].includes(key) || typeof value !== 'string') continue;
+      const match = /^(\d+)\s*(?:话|集)?$/.exec(value.normalize('NFKC').trim());
+      const count = Number(match?.[1]);
+      if (Number.isSafeInteger(count) && count > 0) return count;
+    }
+  }
+  return null;
+}
+
 export function getSubject(db, id) {
   const s = db.prepare('SELECT * FROM subjects WHERE id=?').get(id);
   if (!s) return null;
@@ -379,6 +417,11 @@ export function getSubject(db, id) {
   const cache = db
     .prepare('SELECT fetched_at,detail_complete,payload FROM source_records WHERE subject_id=?')
     .get(id);
+  const archivedFields = db
+    .prepare('SELECT fields FROM archive_infoboxes WHERE subject_id=?')
+    .get(id);
+  const infobox = cache ? JSON.parse(cache.payload).infobox : null;
+  const archivedInfobox = archivedFields ? JSON.parse(archivedFields.fields) : [];
   return {
     ...serialize(db, s),
     source: {
@@ -387,7 +430,8 @@ export function getSubject(db, id) {
       fetchedAt: cache?.fetched_at,
       detailComplete: !!cache?.detail_complete,
     },
-    infobox: cache?.detail_complete ? JSON.parse(cache.payload).infobox || [] : [],
+    infobox: infobox?.length ? infobox : archivedInfobox,
+    totalEpisodes: declaredEpisodeCount(infobox, archivedInfobox),
     episodes: db
       .prepare('SELECT * FROM episodes WHERE subject_id=? ORDER BY type,sort,bangumi_id')
       .all(id)

@@ -12,6 +12,7 @@
     "test:api": "node --test server/*.test.mjs",
     "import:subject": "node --env-file-if-exists=.env server/import.mjs subject",
     "import:archive": "node --env-file-if-exists=.env server/import.mjs archive",
+    "import:archive-full": "node --env-file-if-exists=.env server/import-full-archive.mjs",
     "catalog:repair": "node --env-file-if-exists=.env server/catalog-sync-cli.mjs repair",
     "sync:tags": "node --env-file-if-exists=.env server/catalog-sync-cli.mjs tag",
     "sync:metadata": "node --env-file-if-exists=.env server/catalog-sync-cli.mjs metadata",

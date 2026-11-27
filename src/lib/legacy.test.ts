@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { legacyBackup } from './legacy';
+import { legacyBackup, validateLegacyFile } from './legacy';
 import type { Subject } from '../types';
 const subject: Subject = {
   id: 'subject-real',
@@ -41,6 +41,13 @@ const note = {
   updatedAt: '2026-11-01T12:00:00.000Z',
 };
 describe('旧记录迁移', () => {
+  it('文件读取阶段过滤无关 JSON 和记录损坏的旧备份', () => {
+    expect(() => validateLegacyFile({ kind: 'unrelated' })).toThrow('不是本站备份');
+    const valid = { notes: [note], reviews: [], watched: ['frieren-1'], collected: false };
+    expect(validateLegacyFile(valid)).toEqual(valid);
+    expect(() => validateLegacyFile({ ...valid, notes: [null] })).toThrow('格式有误');
+    expect(() => validateLegacyFile({ ...valid, watched: ['wrong-episode'] })).toThrow('格式有误');
+  });
   it('按正篇集数匹配，稳定ID且不自动公开，不虚构观看时间', async () => {
     const data = {
       notes: [note],

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Search, SlidersHorizontal, ChevronUp, ChevronDown } from 'lucide-react';
 import { api, useRemote } from './lib/api';
 import type { Page, Subject } from './types';
 import { Button } from './components/ui/button';
-import { Poster, Empty, ErrorNotice, Skeleton, LoadingIndicator } from './components/common';
+import { Poster, Empty, ErrorNotice, Skeleton } from './components/common';
 import { stepYear, scoreRangeError } from './lib/catalogFilters';
 export function SubjectGrid({ items }: { items: Subject[] }) {
   return (
@@ -75,17 +75,11 @@ export default function Catalog({
     [tag, setTag] = useState(p.getAll('tag').join('，')),
     [sort, setSort] = useState(p.get('sort') || 'score');
   const effective = new URLSearchParams(query);
-  if (!effective.has('minVotes')) effective.set('minVotes', '100');
   effective.set('limit', '25');
   const result = useRemote<Page<Subject>>(effective.toString(), (signal) =>
     api(`/api/catalog?${effective}`, { signal }),
   );
   const page = result.data?.page || Number(p.get('page') || 1);
-  useEffect(() => {
-    if (!result.data?.tagSync?.pending && !result.data?.ratingSync?.pending) return;
-    const timer = setTimeout(result.reload, result.data?.tagSync?.pending ? 2000 : 5000);
-    return () => clearTimeout(timer);
-  }, [result.data, result.reload]);
   const apply = () => {
     const error = scoreRangeError(score, maxScore);
     setFilterError(error);
@@ -96,7 +90,7 @@ export default function Catalog({
     if (year && quarter) next.set('quarter', quarter);
     if (score) next.set('minScore', score);
     if (maxScore) next.set('maxScore', maxScore);
-    next.set('minVotes', votes || '100');
+    if (votes !== '') next.set('minVotes', votes);
     for (const t of tag
       .split(/[,，]/)
       .map((s) => s.trim())
@@ -232,7 +226,7 @@ export default function Catalog({
             至少评分人数
             <input
               aria-label="至少评分人数"
-              placeholder="默认100人"
+              placeholder={q.trim() ? '不限人数' : '默认100人'}
               type="number"
               min="0"
               max="1000000000"
@@ -302,17 +296,13 @@ export default function Catalog({
             </Button>
           </div>
         </>
-      ) : result.data?.tagSync?.pending ? null : (
+      ) : (
         <Empty
           title="没有找到匹配的番剧"
           description="试试其他名称，或放宽年份、标签和评分限制。"
         />
       )}
-      {(result.data?.tagSync?.pending || result.data?.ratingSync?.pending) && <LoadingIndicator />}
-      <p className="footnote">
-        季度按首播日期划分。标签检索会后台补全对应作品，详情在打开作品后按需补全；默认不展示 R18
-        条目。
-      </p>
+      <p className="footnote">季度按首播日期划分。目录使用本地资料，默认不展示 R18 条目。</p>
     </section>
   );
 }

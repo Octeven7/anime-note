@@ -3,20 +3,20 @@ import { PenLine, Check, Bookmark, RefreshCw, ShieldAlert, ExternalLink } from '
 import { api, useRemote, formatDate } from './lib/api';
 import { Button } from './components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs';
-import {
-  Poster,
-  Feel,
-  Empty,
-  ErrorNotice,
-  Skeleton,
-  SectionTitle,
-  LoadingIndicator,
-} from './components/common';
+import { Poster, Feel, Empty, ErrorNotice, Skeleton, SectionTitle } from './components/common';
 import { NoteList } from './NotesPage';
 import { NoteBody } from './Markdown';
 import { SubjectRating } from './components/SubjectRating';
 import { useSubject } from './lib/useSubject';
 import type { Subject, Episode, Note, Progress, Ratings, Feeling, Impression, Page } from './types';
+const refreshLabels = {
+  all: '全部资料',
+  ratings: '评分人数与分布',
+  episodes: '章节信息',
+  characters: '角色与声优',
+  staff: '制作人员',
+  metadata: '简介与基础资料',
+};
 
 export default function Detail({
   id,
@@ -31,6 +31,7 @@ export default function Detail({
   onRecord: (s: Subject, e?: Episode, n?: Note) => void;
   onEdit: (n: Note) => void;
 }) {
+  const [refreshSection, setRefreshSection] = useState<keyof typeof refreshLabels>('all');
   const [tab, setTab] = useState('summary'),
     [extras, setExtras] = useState(false),
     [visible, setVisible] = useState(50),
@@ -65,7 +66,7 @@ export default function Detail({
     ]);
     return { progress, ratings, summary };
   });
-  const s = detail.data?.subject;
+  const s = detail.data;
   const progress = personal.data?.progress;
   const collectionStatus = progress?.collection?.status;
   const showProgress = collectionStatus === 'doing' || collectionStatus === 'hold';
@@ -106,11 +107,18 @@ export default function Detail({
     setBusy(true);
     setMessage('');
     try {
-      await api<{ stale: boolean; warning?: string }>(
-        `/api/integrations/bangumi/subjects/${s.bangumi_id}`,
-        { method: 'POST', body: { refresh: true } },
+      const result = await api<{ results: { section: keyof typeof refreshLabels; ok: boolean }[] }>(
+        `/api/integrations/bangumi/subjects/${s.bangumi_id}/refresh`,
+        { method: 'POST', body: { section: refreshSection } },
       );
-
+      setMessage(
+        result.results
+          .map(
+            (item) =>
+              `${refreshLabels[item.section]}${item.ok ? '已更新' : '更新失败，保留已有资料'}`,
+          )
+          .join('；'),
+      );
       detail.reload();
     } catch (e) {
       setMessage((e as Error).message);
@@ -239,7 +247,7 @@ export default function Detail({
         <div className="detail-main">
           <div className="subject-heading">
             <div className="flex items-center gap-3">
-              <span className="eyebrow text-brand">
+              <span className="subject-season text-brand">
                 {s.air_date
                   ? `${s.air_date.slice(0, 4)} · ${['冬', '春', '夏', '秋'][Math.floor((Number(s.air_date.slice(5, 7)) - 1) / 3)]}季`
                   : '播出日期待定'}
@@ -257,7 +265,8 @@ export default function Detail({
             )}
             <div className="metadata">
               <span>{s.air_date || '日期待定'} 首播</span>
-              <span>{mainEpisodes.length ? `正篇 ${mainEpisodes.length} 话` : '话数待补全'}</span>
+              <span>{s.totalEpisodes ? `共 ${s.totalEpisodes} 话` : '总话数未公布或未收录'}</span>
+              <span>{`已收录正篇 ${mainEpisodes.length} 话`}</span>
               <span>{studio}</span>
             </div>
             <div className="tags">
@@ -273,7 +282,6 @@ export default function Detail({
               {message}
             </p>
           )}
-          {detail.hydrating && <LoadingIndicator />}
           {personal.error && <ErrorNotice message={personal.error} retry={personal.reload} />}
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="tabs" aria-label="作品内容">
@@ -400,7 +408,7 @@ export default function Detail({
                   );
                 })}
               </div>
-              {!episodes.length && !detail.hydrating && (
+              {!episodes.length && (
                 <div className="py-4 text-sm text-muted">
                   <Button variant="ghost" disabled={busy} onClick={() => void refresh()}>
                     重试获取章节
@@ -440,7 +448,7 @@ export default function Detail({
                   </article>
                 ))}
               </div>
-              {!s.characters?.length && !detail.hydrating && <Empty title="暂未收录角色资料" />}
+              {!s.characters?.length && <Empty title="暂未收录角色资料" />}
               {(s.characters?.length || 0) > castLimit && (
                 <Button variant="outline" onClick={() => setCastLimit((n) => n + 24)}>
                   更多角色与声优
@@ -465,7 +473,21 @@ export default function Detail({
               <ExternalLink size={13} />
               资料来源：Bangumi
             </a>
-            <span>详情获取：{formatDate(s.source?.fetchedAt)}</span>
+            <span>基础资料获取：{formatDate(s.source?.fetchedAt)}</span>
+            <select
+              aria-label="刷新范围"
+              value={refreshSection}
+              disabled={busy}
+              onChange={(event) =>
+                setRefreshSection(event.target.value as keyof typeof refreshLabels)
+              }
+            >
+              {Object.entries(refreshLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <Button variant="ghost" disabled={busy} onClick={() => void refresh()}>
               <RefreshCw size={13} />
               {busy ? '正在更新…' : '刷新资料'}

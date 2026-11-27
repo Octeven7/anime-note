@@ -22,10 +22,10 @@ import {
   addRating,
 } from './personal.mjs';
 import { exportPersonal, restorePersonal } from './backup.mjs';
+import { autoBackup } from './auto-backup.mjs';
 import { calendarService } from './calendar.mjs';
 import { posterService, posterTiming } from './posters.mjs';
-import { tagIndexer } from './tag-indexer.mjs';
-import { ratingRefresher } from './rating-refresh.mjs';
+import { refreshDetail, refreshSections } from './detail-refresh.mjs';
 
 const MAX_BODY = 4096;
 async function readJson(req, limit = 512 * 1024) {
@@ -49,12 +49,11 @@ async function readJson(req, limit = 512 * 1024) {
     throw new InputError('无效 JSON 或 UTF-8');
   }
 }
-export function createApp({ db, client, port = 3001, posterOptions }) {
+export function createApp({ db, client, port = 3001, posterOptions, backupDirectory }) {
+  const backups = autoBackup(db, { directory: backupDirectory });
   const inFlight = new Map();
   const calendar = calendarService(db, client);
   const poster = posterService(db, posterOptions);
-  const tagIndex = tagIndexer(db, client);
-  const ratings = ratingRefresher(db, client);
   const send = (res, status, data) => {
     res.writeHead(status, {
       'Content-Type': 'application/json; charset=utf-8',
@@ -232,6 +231,10 @@ export function createApp({ db, client, port = 3001, posterOptions }) {
           send(res, 200, publicImpressions(db, impressions[1], url.searchParams));
           return;
         }
+        if (req.method === 'GET' && url.pathname === '/api/me/backup/status') {
+          send(res, 200, backups.status());
+          return;
+        }
         if (req.method === 'GET' && url.pathname === '/api/me/backup') {
           res.setHeader('Content-Disposition', 'attachment; filename="paper-screen-personal.json"');
           send(res, 200, exportPersonal(db));
@@ -266,22 +269,42 @@ export function createApp({ db, client, port = 3001, posterOptions }) {
           return;
         }
         if (req.method === 'GET' && url.pathname === '/api/catalog') {
-          const result = searchCatalog(db, url.searchParams);
-          send(res, 200, {
-            ...result,
-            tagSync: tagIndex.state(url.searchParams.getAll('tag')),
-            ratingSync: ratings.state(result.items),
-          });
+          send(res, 200, searchCatalog(db, url.searchParams));
           return;
         }
         const detail = url.pathname.match(/^\/api\/catalog\/(subject_[a-f0-9-]+)$/);
         if (req.method === 'GET' && detail) {
           const item = getSubject(db, detail[1]);
-          if (item) item.rating_refresh_pending = ratings.state([item]).pending;
           send(res, item ? 200 : 404, item || { error: '本地资料库中没有该作品' });
           return;
         }
         const importing = url.pathname.match(/^\/api\/integrations\/bangumi\/subjects\/(\d+)$/);
+        const refreshing = url.pathname.match(
+          /^\/api\/integrations\/bangumi\/subjects\/(\d+)\/refresh$/,
+        );
+        if (req.method === 'POST' && refreshing) {
+          const payload = await readJson(req, MAX_BODY);
+          if (
+            !payload ||
+            Array.isArray(payload) ||
+            Object.keys(payload).some((key) => key !== 'section') ||
+            !['all', ...refreshSections].includes(payload.section)
+          )
+            throw new InputError('无效刷新范围');
+          const bangumiId = Number(refreshing[1]);
+          if (!Number.isSafeInteger(bangumiId) || bangumiId < 1)
+            throw new InputError('无效 Bangumi ID');
+          const key = 'refresh:' + bangumiId + ':' + payload.section;
+          if (!inFlight.has(key))
+            inFlight.set(
+              key,
+              refreshDetail(db, client, bangumiId, payload.section).finally(() =>
+                inFlight.delete(key),
+              ),
+            );
+          send(res, 200, await inFlight.get(key));
+          return;
+        }
         if (req.method === 'POST' && importing) {
           const payload = await readJson(req, MAX_BODY);
           if (
@@ -349,9 +372,9 @@ export function createApp({ db, client, port = 3001, posterOptions }) {
       }
     },
   );
+  server.on('listening', backups.start);
   server.on('close', () => {
-    tagIndex.close();
-    ratings.close();
+    backups.close();
     poster.close();
   });
   return server;

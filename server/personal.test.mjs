@@ -31,6 +31,51 @@ function setup() {
 }
 const p = (query = '') => new URLSearchParams(query);
 
+test('笔记按番剧聚合后分页，数量排除空稿与删除记录，按最近记录排序', () => {
+  const { db, sid, eid } = setup();
+  try {
+    const other = storeBundle(db, {
+      subject: { id: 2, type: 2, name: '另一部动画' },
+      episodes: [{ id: 20, sort: 1, type: 0, name: '第一集' }],
+      characters: [],
+      persons: [],
+    });
+    const first = createNote(db, {
+      subjectId: sid,
+      episodeId: eid,
+      scope: 'episode',
+      body: '第一条',
+    });
+    createNote(db, { subjectId: sid, episodeId: eid, scope: 'episode', body: '第二条' });
+    createNote(db, { subjectId: sid, episodeId: eid, scope: 'episode' });
+    createNote(db, {
+      subjectId: other,
+      episodeId: 'bgm-episode-20',
+      scope: 'episode',
+      body: '另一部的笔记',
+    });
+    db.prepare('UPDATE notes SET updated_at=? WHERE id=?').run('2199-01-01T00:00:00Z', first.id);
+    const query = p('view=subjects&scope=episode&limit=1');
+    const page = listNotes(db, query);
+    assert.equal(page.total, 2);
+    assert.equal(page.items[0].id, sid);
+    assert.equal(page.items[0].noteCount, 2);
+    query.set('page', '2');
+    assert.equal(listNotes(db, query).items[0].id, other);
+    query.set('page', '1');
+    query.set('q', '另一部');
+    assert.equal(listNotes(db, query).items[0].id, other);
+    db.prepare('UPDATE notes SET deleted_at=? WHERE subject_id=?').run(
+      new Date().toISOString(),
+      sid,
+    );
+    query.delete('q');
+    assert.equal(listNotes(db, query).total, 1);
+  } finally {
+    db.close();
+  }
+});
+
 test('有单集感受的草稿保存即联动已看，无内容不改进度，重复保存不重复事件', () => {
   const { db, sid, eid } = setup();
   try {
@@ -63,11 +108,20 @@ test('有单集感受的草稿保存即联动已看，无内容不改进度，�
     assert.equal(note.draft.scenes[0].time, '1:02:03');
     assert.equal(progress(db, sid).episodes.filter((ep) => ep.watched).length, 3);
     assert.equal(progress(db, sid).history.length, 3);
+    setEpisode(db, sid, eid, { watched: false });
+    setEpisode(db, sid, 'bgm-episode-12', { watched: false });
+    note = saveDraft(db, note.id, { expectedVersion: note.version, title: '补充演出细节' });
     publishNote(db, note.id, { expectedVersion: note.version });
+    let episodes = progress(db, sid).episodes;
+    assert.equal(episodes.find((ep) => ep.episode_id === eid).watched, false);
+    assert.equal(episodes.find((ep) => ep.episode_id === 'bgm-episode-12').watched, false);
     assert.equal(progress(db, sid).history.length, 3);
+    episodes = setEpisode(db, sid, 'bgm-episode-12', { watched: true }).episodes;
+    assert.equal(episodes.find((ep) => ep.episode_id === eid).watched, false);
+    assert.equal(episodes.find((ep) => ep.episode_id === 'bgm-episode-12').watched, true);
     assert.equal(listNotes(db, p('q=演出细节')).total, 1);
     const index = listNotes(db, p('view=index')).items[0];
-    assert.equal(index.draft.title, '演出细节');
+    assert.equal(index.draft.title, '补充演出细节');
     assert.equal(index.draft.body, '');
     assert.equal(getNote(db, note.id).draft.body, '一个长镜头');
   } finally {

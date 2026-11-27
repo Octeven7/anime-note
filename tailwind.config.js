@@ -12,9 +12,9 @@ export default {
         brand: 'rgb(var(--brand) / <alpha-value>)',
       },
       fontFamily: {
-        editorial: ['"Noto Serif SC"', '"Songti SC"', 'SimSun', 'serif'],
-        sans: ['"Noto Sans SC"', '"Microsoft YaHei"', 'sans-serif'],
-        mono: ['Consolas', 'monospace'],
+        editorial: ['var(--font-editorial)'],
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
       },
       fontSize: { body: ['15px', { lineHeight: '1.75' }] },
       borderRadius: { sm: '2px', md: '6px', lg: '10px' },

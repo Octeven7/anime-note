@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, Upload, RotateCcw, Database } from 'lucide-react';
 import { api, useRemote, download, formatDate } from './lib/api';
-import { legacyBackup, readLegacyBrowser } from './lib/legacy';
-import type { Note as LegacyNote } from './data';
+import { legacyBackup, readLegacyBrowser, validateLegacyFile } from './lib/legacy';
 import type { Page, Subject } from './types';
 import { Button } from './components/ui/button';
 import { ErrorNotice, Empty } from './components/common';
@@ -43,6 +42,16 @@ export default function DataSettings({
   const trash = useRemote<Page<Trash>>(`${revision}:${page}`, (signal) =>
     api(`/api/me/trash?page=${page}`, { signal }),
   );
+  const { data: automaticBackup, reload: reloadAutomaticBackup } = useRemote<{
+    enabled: boolean;
+    file: string | null;
+    lastSuccess: string | null;
+    error: string | null;
+  }>(String(revision), (signal) => api('/api/me/backup/status', { signal }));
+  useEffect(() => {
+    const timer = setInterval(reloadAutomaticBackup, 30000);
+    return () => clearInterval(timer);
+  }, [reloadAutomaticBackup]);
   let hasLegacy = false;
   try {
     hasLegacy = readLegacyBrowser().hasData;
@@ -60,18 +69,23 @@ export default function DataSettings({
     }
   }
   async function prepare(value: unknown, name: string) {
-    let selected = value as { format?: string };
-    if (selected?.format !== 'paper-screen-personal') {
+    const header = value as { format?: string; version?: number; data?: unknown } | null;
+    let selected = value;
+    if (header?.format === 'paper-screen-personal') {
+      if (
+        (header.version !== 1 && header.version !== 2) ||
+        !header.data ||
+        typeof header.data !== 'object' ||
+        Array.isArray(header.data)
+      )
+        throw new Error('本站备份的版本或数据格式无效。');
+    } else {
+      const old = validateLegacyFile(value);
       const result = await api<{ item: Subject }>('/api/integrations/bangumi/subjects/400602', {
         method: 'POST',
         body: {},
       });
-      const old = value as { legacyDrafts?: { key: string; value: LegacyNote }[] };
-      selected = await legacyBackup(
-        value,
-        result.item,
-        Array.isArray(old.legacyDrafts) ? old.legacyDrafts : [],
-      );
+      selected = await legacyBackup(old, result.item, old.legacyDrafts);
     }
     setBackup(selected);
     setFilename(name);
@@ -137,6 +151,29 @@ export default function DataSettings({
           JSON
           备份包含私密正文、草稿和历史，不包含账号令牌或整套番剧资料。恢复不会覆盖已有不同内容。
         </p>
+        {automaticBackup && (
+          <div className="text-sm text-muted">
+            {automaticBackup.enabled ? (
+              <>
+                {automaticBackup.file && (
+                  <p className="break-all">自动备份位置 · {automaticBackup.file}</p>
+                )}
+                <p>
+                  上次成功备份 ·{' '}
+                  {automaticBackup.lastSuccess
+                    ? formatDate(automaticBackup.lastSuccess)
+                    : '尚未成功'}
+                </p>
+                {automaticBackup.error && <ErrorNotice message={automaticBackup.error} />}
+              </>
+            ) : (
+              <p>
+                自动备份未启用。在 .env 中将 PERSONAL_BACKUP_DIR
+                设为独立存储上的目录，然后重启服务。
+              </p>
+            )}
+          </div>
+        )}
         <div className="settings-actions">
           <Button
             disabled={busy}

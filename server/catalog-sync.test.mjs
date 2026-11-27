@@ -45,7 +45,7 @@ test('数字细分类、文字细分类一致，旧库回填幂等，不影响�
   }
 });
 
-test('首页、名称、标签、评分检索默认至少100人；显式0仍可查询全部', () => {
+test('浏览默认至少100人，关键字搜索默认不限人数，显式门槛优先', () => {
   const db = openDatabase(':memory:');
   try {
     for (const [id, total] of [
@@ -54,8 +54,9 @@ test('首页、名称、标签、评分检索默认至少100人；显式0仍可�
       [3, 101],
     ])
       upsertSubject(db, raw(id, { rating: { score: 8, total } }));
-    for (const query of ['', 'q=作品', 'tag=恋爱', 'minScore=7&maxScore=9'])
+    for (const query of ['', 'tag=恋爱', 'minScore=7&maxScore=9', 'q=作品&minVotes=100'])
       assert.equal(search(db, query).total, 2);
+    assert.equal(search(db, 'q=作品').total, 3);
     assert.equal(search(db, 'minVotes=0').total, 3);
   } finally {
     db.close();

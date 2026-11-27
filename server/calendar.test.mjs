@@ -44,6 +44,18 @@ test('真实放送接口缓存、跨季项目、未提供时刻和在追筛选',
     assert.equal(result.items.length, 1);
     assert.equal(result.items[0].time, null);
     assert.equal(result.items[0].latestEpisode, null);
+    const subjectId = result.items[0].id;
+    db.prepare('INSERT INTO archive_infoboxes VALUES (?,?)').run(
+      subjectId,
+      JSON.stringify([{ key: '话数', value: '１２' }]),
+    );
+    const chapter = db.prepare('INSERT INTO episodes VALUES (?,?,?,?,?,?,?,?,?)');
+    chapter.run('dated', subjectId, 101, 3, 0, '已收录', '', '2020-01-03', '{}');
+    chapter.run('unknown', subjectId, 102, 4, 0, '日期未定', '', '', '{}');
+    chapter.run('future', subjectId, 103, 5, 0, '未来章节', '', '2199-01-01', '{}');
+    result = await service(params);
+    assert.equal(result.items[0].totalEpisodes, 12);
+    assert.equal(result.items[0].latestEpisode.id, 'dated');
     await service(params);
     assert.equal(calls, 1);
     params.set('following', 'true');
@@ -63,6 +75,96 @@ test('真实放送接口缓存、跨季项目、未提供时刻和在追筛选',
     assert.equal(historical.mode, 'archive');
     assert.equal(historical.items.length, 1);
     assert.equal(historical.items[0].time, null);
+  } finally {
+    db.close();
+  }
+});
+test('当前周播缓存中的集中上线作品也只出现在其他放送', async () => {
+  const db = openDatabase(':memory:');
+  try {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' });
+    const subject = { id: 1, type: 2, name: '集中上线作品', date: today, platform: 5 };
+    storeBundle(db, {
+      subject,
+      episodes: [1, 2].map((sort) => ({ id: sort, sort, type: 0, airdate: today })),
+      characters: [],
+      persons: [],
+    });
+    const service = calendarService(db, {
+      calendar: async () => [{ weekday: { id: 1 }, items: [subject] }],
+    });
+    const result = await service(new URLSearchParams());
+    assert.equal(result.mode, 'calendar');
+    assert.equal(result.items.length, 0);
+    assert.deepEqual(
+      result.otherReleases.map((item) => [item.date, item.episodes]),
+      [[today, 2]],
+    );
+  } finally {
+    db.close();
+  }
+});
+test('集中上线、跨季度分批、分段复播和剧场版按日期列入其他放送', async () => {
+  const db = openDatabase(':memory:');
+  try {
+    for (const [id, platform, dates] of [
+      [1, 5, ['2020-04-03', '2020-04-03']],
+      [2, 5, ['2020-04-04', '2020-04-04', '2020-07-03', '2020-07-03']],
+      [3, 3, ['2020-07-11']],
+      [4, 1, ['2020-07-04', '2020-07-04', '2020-07-11', '2020-07-18']],
+      [5, 1, ['2020-05-01', '2020-05-08', '2020-07-10', '2020-07-17']],
+    ]) {
+      storeBundle(db, {
+        subject: { id, type: 2, name: `作品 ${id}`, date: dates[0], platform },
+        episodes: dates.map((airdate, index) => ({
+          id: id * 10 + index,
+          type: 0,
+          sort: index + 1,
+          airdate,
+        })),
+        characters: [],
+        persons: [],
+      });
+    }
+    const service = calendarService(db, { calendar: async () => [] });
+    const quarter = (number) => new URLSearchParams({ year: 2020, quarter: number });
+    const spring = await service(quarter(2));
+    assert.deepEqual(
+      spring.otherReleases.map(({ bangumiId, kind }) => [bangumiId, kind]),
+      [
+        [1, 'batch'],
+        [2, 'batchPart'],
+      ],
+    );
+    assert.deepEqual(
+      spring.items.map((item) => item.bangumiId),
+      [5],
+    );
+    const summer = await service(quarter(3));
+    assert.deepEqual(
+      summer.otherReleases.map(({ bangumiId, date, kind, episodes }) => [
+        bangumiId,
+        date,
+        kind,
+        episodes,
+      ]),
+      [
+        [2, '2020-07-03', 'batchPart', 2],
+        [5, '2020-07-10', 'resumption', 1],
+        [3, '2020-07-11', 'movie', null],
+      ],
+    );
+    assert.deepEqual(
+      summer.items.map((item) => item.bangumiId),
+      [4],
+    );
+    setCollection(db, summer.otherReleases[0].id, { status: 'doing' });
+    const params = quarter(3);
+    params.set('following', 'true');
+    assert.deepEqual(
+      (await service(params)).otherReleases.map((item) => item.bangumiId),
+      [2],
+    );
   } finally {
     db.close();
   }

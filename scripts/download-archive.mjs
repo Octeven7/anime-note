@@ -3,7 +3,6 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
-  readFileSync,
   writeFileSync,
   renameSync,
   unlinkSync,
@@ -14,17 +13,6 @@ import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { spawn } from 'node:child_process';
 
-function run(command, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
-    let output = '';
-    child.stdout.on('data', (chunk) => (output += chunk));
-    child.on('error', reject);
-    child.on('exit', (code) =>
-      code === 0 ? resolve(output) : reject(new Error(`${command} exited ${code}`)),
-    );
-  });
-}
 async function sha256(path) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(path)) hash.update(chunk);
@@ -84,25 +72,11 @@ try {
     }
     renameSync(zip + '.partial', zip);
   }
-  const names = (await run('tar', ['-tf', zip])).split(/\r?\n/);
-  const subject = names.find((name) => /^(?:[a-zA-Z0-9_-]+\/)?subject\.jsonlines$/.test(name));
-  if (!subject)
-    throw new Error(`No subject.jsonlines found; entries: ${names.slice(0, 15).join(', ')}`);
-  const extracted = join(directory, subject);
-  if (
-    !existsSync(extracted) ||
-    !existsSync(join(directory, 'manifest.json')) ||
-    JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8')).digest !== metadata.digest
-  ) {
-    console.log('Extracting subject catalog only…');
-    await run('tar', ['-xf', zip, '-C', directory, subject]);
-  }
   writeFileSync(join(directory, 'manifest.json'), JSON.stringify(metadata, null, 2));
-  console.log(`Verified subject file: ${extracted}`);
-  console.log('Importing animation catalog…');
+  console.log('Importing the local animation archive…');
   const child = spawn(
     process.execPath,
-    ['--env-file-if-exists=.env', 'server/import.mjs', 'archive', extracted],
+    ['--env-file-if-exists=.env', 'server/import-full-archive.mjs', zip],
     { stdio: 'inherit', windowsHide: true },
   );
   await new Promise((resolve, reject) => {

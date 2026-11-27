@@ -21,7 +21,6 @@
 
 ```sh
 pnpm install --frozen-lockfile
-node scripts/download-archive.mjs
 pnpm dev
 ```
 
@@ -29,7 +28,21 @@ pnpm dev
 
 使用 `pnpm dev` 时，服务在前台终端运行，按 Ctrl+C 停止。
 
-导入脚本下载并校验 Bangumi 官方归档，再将动画及其章节、角色、声优和制作资料写入 SQLite。已有归档 ZIP 时，运行 `pnpm import:archive-full` 即可离线导入。已有数据库会在启动时迁移到 v12。目录、标签、作品详情和评分使用本地数据，可通过详情页的「刷新资料」或 `pnpm import:subject 400602` 向 Bangumi 更新单部作品。
+首次启动会创建空资料库。已有数据库会在启动时迁移到 v12。
+
+## 可选下载 · 批量导入番剧资料
+
+想开箱浏览番剧，建议先从 [Bangumi 官方 GitHub Releases](https://github.com/bangumi/Archive/releases/latest) 下载一份完整 Wiki 归档。导入后可以在本地搜索和查看作品、章节、角色、声优及制作资料。已有归档文件时，整个导入过程可离线完成，省去逐部访问 Bangumi API。
+
+1. 在官方发布页下载归档 ZIP。最新文件名和下载地址可在 [最新快照清单](https://raw.githubusercontent.com/bangumi/Archive/master/aux/latest.json) 的 `browser_download_url` 找到。
+2. 保留 ZIP 原样，将它放到 `data/archive/bangumi.zip`，然后在项目根目录运行 `pnpm import:archive-full`。也可将本机 ZIP 的完整路径作为参数传入。
+3. 导入完成后启动网站。单部作品后续可在详情页按栏目刷新。
+
+也可运行 `node scripts/download-archive.mjs`，由脚本从 GitHub 下载、校验并导入。网站已运行且有个人记录时，导入会补齐或更新作品资料，保留原有作品与个人记录的关联。
+
+官方归档提供文本和关联资料。海报网址仍取决于本地已导入的字段或后续地址补齐，图片文件由网站浏览时缓存。已有自己下载的海报缓存时，可以把 `posters/` 复制到新环境数据库旁复用。若所在网络无法访问 Bangumi，仍可通过 GitHub 下载归档并使用本地资料。刷新资料、实时放送和未缓存海报需要各自的上游服务可用。
+
+本项目提供官方下载入口。本机抓取的完整数据库和海报缓存涉及再分发，相关使用范围见 [Bangumi 版权声明与开发者平台协议](https://bgm.tv/about/copyright)。
 
 ## 本机数据
 
